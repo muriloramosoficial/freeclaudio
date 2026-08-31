@@ -1,0 +1,38 @@
+{
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": 8082,
+    "auth_token": "freeclaudio"
+  },
+  "providers": {
+    "openrouter": {
+      "enabled": true,
+      "type": "openai",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": "YOUR_OPENROUTER_KEY",
+      "default_model": "free"
+    },
+    "groq": {
+      "enabled": false,
+      "type": "openai",
+      "base_url": "https://api.groq.com/openai/v1",
+      "api_key": "YOUR_GROQ_KEY",
+      "default_model": "llama-3.3-70b-versatile"
+    },
+    "nvidia_nim": {
+      "enabled": true,
+      "type": "openai",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "api_key": "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",
+      "default_model": "nvidia/nemotron-3-super-120b-a12b"
+    },
+    "lmstudio": {
+      "enabled": true,
+      "type": "openai",
+      "base_url": "https://lms.pandashub.com.br/v1",
+      "api_key": "null",
+      "default_model": "qwen3.5-9b-uncensored-hauhaucs-aggressive"
+    }
+  },
+  "default_provider": "openrouter"
+}
