@@ -43,31 +43,41 @@ echo [OK] Dependencias Python instaladas.
 REM --- 4. Instalar Claude Code via npm ---
 echo.
 echo Verificando Claude Code...
+REM validar se o binario e nativo (nao o stub de ~500 bytes de postinstall bloqueado)
 where claude >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo Claude Code nao encontrado. Instalando via npm...
-    where npm >nul 2>&1
-    if %ERRORLEVEL% NEQ 0 (
-        echo [ERRO] npm nao encontrado. Instale Node.js de https://nodejs.org
-        goto :end
+if %ERRORLEVEL% NEQ 0 goto :install_claude
+for /f "delims=" %%i in ('where claude') do set "CLAUDE_BIN=%%i"
+if exist "!CLAUDE_BIN!" (
+    for %%A in ("!CLAUDE_BIN!") do set "CLAUDE_SIZE=%%~zA"
+    if defined CLAUDE_SIZE if !CLAUDE_SIZE! LSS 5000 (
+        echo [AVISO] binario do Claude invalido (stub). Reinstalando...
+        goto :install_claude
     )
-    call npm install -g @anthropic-ai/claude-code
-    if !ERRORLEVEL! NEQ 0 (
-        echo [ERRO] Falha ao instalar Claude Code.
-        goto :end
-    )
-    REM Rodar postinstall para baixar o binario nativo
-    echo Configurando binario nativo do Claude Code...
-    where claude >nul 2>&1
-    if !ERRORLEVEL! NEQ 0 (
-        REM postinstall via node direto
-        for /f "tokens=*" %%i in ('npm root -g') do set "NPM_GLOBAL=%%i"
-        node "!NPM_GLOBAL!\@anthropic-ai\claude-code\install.cjs" 2>nul
-    )
-    echo [OK] Claude Code instalado.
-) else (
-    echo [OK] Claude Code ja esta instalado.
 )
+echo [OK] Claude Code ja esta instalado e funcional.
+goto :configured
+
+:install_claude
+echo Claude Code nao encontrado ou invalido. Instalando via npm...
+where npm >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERRO] npm nao encontrado. Instale Node.js de https://nodejs.org
+    goto :end
+)
+REM --allow-scripts resolve o bloqueio do postinstall (secure-by-default do npm)
+call npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code
+if !ERRORLEVEL! NEQ 0 (
+    echo [ERRO] Falha ao instalar Claude Code.
+    goto :end
+)
+REM Garantir postinstall caso ainda nao tenha rodado
+echo Configurando binario nativo do Claude Code...
+for /f "tokens=*" %%i in ('npm root -g') do set "NPM_GLOBAL=%%i"
+if exist "!NPM_GLOBAL!\@anthropic-ai\claude-code\install.cjs" (
+    node "!NPM_GLOBAL!\@anthropic-ai\claude-code\install.cjs" 2>nul
+)
+echo [OK] Claude Code instalado.
+:configured
 
 REM --- 5. Adicionar ao PATH do usuario ---
 echo.

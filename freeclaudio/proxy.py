@@ -133,10 +133,11 @@ def _stream_response(
             ) as resp:
                 if resp.status_code != 200:
                     err_text = await resp.aread()
-                    raise RuntimeError(
-                        f"Provider {provider.name} retornou {resp.status_code}: "
-                        f"{err_text.decode(errors='replace')[:500]}"
+                    yield _sse_error_from_provider(
+                        provider.name, resp.status_code, err_text
                     )
+                    yield _sse_encode({"type": "message_stop"})
+                    return
                 async for line in resp.aiter_lines():
                     if not line.startswith("data:"):
                         continue
@@ -304,11 +305,44 @@ def _sse_encode(event: dict[str, Any]) -> str:
     return f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
 
 
-def _prefix_message_event(event: dict[str, Any], msg_id: str, model: str) -> dict[str, Any]:
-    """Claude espera os eventos message_start/message_delta com certos campos."""
-    if event.get("type") == "message_delta" and "usage" not in event:
-        event["usage"] = {"output_tokens": 0}
-    return event
+def _sse_error_from_provider(provider_name: str, status: int, err_bytes: bytes) -> str:
+    """Gera um evento Anthropic 'error' amigavel quando o provider falha.
+
+    Retorna a string SSE completa com um texto claro para o usuario, com dica
+    especifica para o erro mais comum: 401 = falta de API key.
+    """
+    raw = err_bytes.decode(errors="replace")[:500]
+    message = _extract_provider_error_message(raw)
+    hint = ""
+    if status in (401, 403):
+        hint = (
+            "\n\n[freeclaudio] Dica: o provider retornou erro de autenticacao. "
+            "Verifique a 'api_key' de '{}' no providers.json "
+            "(valor real, ou 'env:NOME_DA_VAR' com a variavel definida)."
+        ).format(provider_name)
+    text = (
+        f"O provider '{provider_name}' retornou um erro (HTTP {status}).\n"
+        f"{message}{hint}"
+    )
+    event = {
+        "type": "error",
+        "error": {"type": "api_error", "message": text},
+    }
+    return _sse_encode(event)
+
+
+def _extract_provider_error_message(raw: str) -> str:
+    """Extrai a mensagem de erro legivel do corpo JSON do provider."""
+    try:
+        parsed = json.loads(raw)
+        err = parsed.get("error")
+        if isinstance(err, dict):
+            return str(err.get("message", raw))
+        if isinstance(err, str):
+            return err
+    except json.JSONDecodeError:
+        pass
+    return raw
 
 
 def _count_text(body: dict[str, Any]) -> str:

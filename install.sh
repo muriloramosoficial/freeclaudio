@@ -33,18 +33,30 @@ echo "[OK] Dependencias Python instaladas."
 # --- 4. Instalar Claude Code ---
 echo ""
 echo "Verificando Claude Code..."
-if ! command -v claude &>/dev/null; then
-    echo "Claude Code nao encontrado. Instalando via npm..."
-    npm install -g @anthropic-ai/claude-code
-    # Rodar postinstall para binario nativo
+
+_install_claude() {
+    npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code
+    # Garantir postinstall caso ainda nao tenha rodado
     NPM_ROOT="$(npm root -g)"
     if [ -f "$NPM_ROOT/@anthropic-ai/claude-code/install.cjs" ]; then
         echo "Configurando binario nativo..."
         node "$NPM_ROOT/@anthropic-ai/claude-code/install.cjs" 2>/dev/null || true
     fi
     echo "[OK] Claude Code instalado."
+}
+
+if command -v claude &>/dev/null; then
+    CLAUDE_DIR="$(dirname "$(command -v claude)")"
+    CLAUDE_SIZE=$(stat -c%s "$CLAUDE_DIR/claude" 2>/dev/null || stat -f%z "$CLAUDE_DIR/claude" 2>/dev/null || echo 0)
+    if [ -n "$CLAUDE_SIZE" ] && [ "$CLAUDE_SIZE" -gt 5000 ]; then
+        echo "[OK] Claude Code ja esta instalado e funcional."
+    else
+        echo "[AVISO] binario do Claude invalido (stub). Reinstalando..."
+        _install_claude
+    fi
 else
-    echo "[OK] Claude Code ja esta instalado."
+    echo "Claude Code nao encontrado. Instalando via npm..."
+    _install_claude
 fi
 
 # --- 5. Criar symlink para 'freeclaudio' ---

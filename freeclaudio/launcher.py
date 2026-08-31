@@ -11,30 +11,71 @@ import time
 from pathlib import Path
 
 
+# Tamanho do stub invalido do claude.exe quando o postinstall nao roda
+# (arquivo de texto de ~500 bytes com mensagem de erro, nao um binario nativo)
+_CLAUDE_STUB_MAX_BYTES = 5000
+
+
 def ensure_claude_installed() -> str:
-    """Garante que o claude-code CLI está instalado. Retorna o caminho do binário."""
-    claude = shutil.which("claude")
-    if claude:
+    """Garante que o claude-code CLI esta instalado e funcional.
+
+    Alem de achar o binario, valida que o claude.exe NAO e o stub de 500 bytes
+    que resulta quando o postinstall do npm e bloqueado (allowScripts). Se for,
+    reinstala com --allow-scripts. Retorna o caminho do binario valido.
+    """
+    claude = _find_claude_binary()
+    if claude and _looks_like_native_binary(claude):
         return claude
 
-    print("Claude Code não encontrado. Instalando via npm...")
+    print("Claude Code invalido ou ausente. Reinstalando via npm...")
     npm = _find_npm()
     if npm is None:
         raise RuntimeError(
-            "npm não encontrado. Instale o Node.js 18+ ou rode `npm install -g @anthropic-ai/claude-code`."
+            "npm nao encontrado. Instale o Node.js 18+ e rode "
+            "`npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code`."
         )
 
+    # --allow-scripts resolve o bloqueio do postinstall (secure-by-default do npm)
     result = subprocess.run(
-        [npm, "install", "-g", "@anthropic-ai/claude-code"],
+        [
+            npm, "install", "-g",
+            "--allow-scripts=@anthropic-ai/claude-code",
+            "@anthropic-ai/claude-code",
+        ],
         check=False,
     )
     if result.returncode != 0:
-        raise RuntimeError("Falha ao instalar @anthropic-ai/claude-code via npm.")
+        raise RuntimeError(
+            "Falha ao instalar @anthropic-ai/claude-code via npm. "
+            "Rode manualmente: npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code"
+        )
 
-    claude = shutil.which("claude")
+    claude = _find_claude_binary()
     if not claude:
-        raise RuntimeError("Claude Code instalado mas não encontrado no PATH.")
+        raise RuntimeError("Claude Code instalado mas nao encontrado no PATH.")
+    if not _looks_like_native_binary(claude):
+        raise RuntimeError(
+            "O claude.exe instalado parece ser um stub (postinstall bloqueado). "
+            "Rode manualmente: node \"<npm-global>/@anthropic-ai/claude-code/install.cjs\""
+        )
     return claude
+
+
+def _find_claude_binary() -> str | None:
+    claude = shutil.which("claude")
+    if claude:
+        return claude
+    return None
+
+
+def _looks_like_native_binary(path: str) -> bool:
+    """True se o arquivo for um binario nativo grande, nao o stub de texto de erro."""
+    try:
+        size = Path(path).stat().st_size
+        # O stub do claude.exe tem ~500 bytes; o binario nativo tem dezenas de MB
+        return size > _CLAUDE_STUB_MAX_BYTES
+    except OSError:
+        return False
 
 
 def _find_npm() -> str | None:

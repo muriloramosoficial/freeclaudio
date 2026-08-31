@@ -40,17 +40,31 @@ Write-Host "[OK] Dependencias Python instaladas." -ForegroundColor Green
 # 4. Instalar Claude Code via npm
 Write-Host ""
 $claudePath = Get-Command claude -ErrorAction SilentlyContinue
-if (-not $claudePath) {
-    Write-Host "Claude Code nao encontrado. Instalando via npm..."
+$claudeOk = $false
+if ($claudePath) {
+    $exe = $claudePath.Source
+    try {
+        $size = (Get-Item $exe).Length
+        # Binario nativo tem dezenas de MB; o stub de postinstall bloqueado tem ~500 bytes
+        if ($size -gt 5000) { $claudeOk = $true }
+    } catch { $claudeOk = $false }
+}
+if (-not $claudeOk) {
+    if ($claudePath) {
+        Write-Host "[AVISO] binario do Claude invalido (stub). Reinstalando..." -ForegroundColor Yellow
+    } else {
+        Write-Host "Claude Code nao encontrado. Instalando via npm..."
+    }
     $npmPath = Get-Command npm -ErrorAction SilentlyContinue
     if (-not $npmPath) {
         Write-Host "[ERRO] npm nao encontrado. Instale Node.js de https://nodejs.org" -ForegroundColor Red
         exit 1
     }
-    npm install -g @anthropic-ai/claude-code
+    # --allow-scripts resolve o bloqueio do postinstall (secure-by-default do npm)
+    npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code
     if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar Claude Code." }
 
-    # Rodar postinstall para baixar binario nativo
+    # Garantir postinstall caso ainda nao tenha rodado
     Write-Host "Configurando binario nativo do Claude Code..."
     $npmRoot = (npm root -g).Trim()
     $installCjs = Join-Path $npmRoot "@anthropic-ai\claude-code\install.cjs"
@@ -59,7 +73,7 @@ if (-not $claudePath) {
     }
     Write-Host "[OK] Claude Code instalado." -ForegroundColor Green
 } else {
-    Write-Host "[OK] Claude Code ja esta instalado: $($claudePath.Source)" -ForegroundColor Green
+    Write-Host "[OK] Claude Code ja esta instalado e funcional: $($claudePath.Source)" -ForegroundColor Green
 }
 
 # 5. Adicionar ao PATH do usuario

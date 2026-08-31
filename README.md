@@ -106,7 +106,48 @@ freeclaudio              # sobe proxy + Claude Code
 freeclaudio --help       # passa args pro Claude Code
 ```
 
-### Providers suportados
+## Troubleshooting
+
+### "claude.exe nao e compativel com esta versao do Windows" / Postinstall bloqueado
+
+O npm moderno (com `allowScripts`) **bloqueia o postinstall** do claude-code por
+seguranca. Quando isso acontece, o `claude.exe` vira um **stub invalido de ~500
+bytes** (em vez do binario nativo de ~200MB), e o Claude Code nao abre.
+
+Se o instalador ja usou `--allow-scripts`, rode manualmente:
+
+```bash
+npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code
+```
+
+O `freeclaudio` agora detecta esse stub automaticamente e tenta reinstalar. Se
+ainda falhar, rode o postinstall manualmente:
+
+```bash
+# Windows
+node "<npm-global>/@anthropic-ai/claude-code/install.cjs"
+
+# macOS / Linux
+npm root -g   # descobre o caminho
+node "$(npm root -g)/@anthropic-ai/claude-code/install.cjs"
+```
+
+### Provider retorna 401 / "No cookie auth credentials found" / "api key"
+
+Isso significa que o provider nao recebeu uma chave de API valida. Verifique o
+`providers.json`:
+
+- Preencha `api_key` com sua chave real (nao deixe `YOUR_...`)
+- Ou use `"api_key": "env:NOME_DA_VARIAVEL"` e defina a variavel no ambiente
+
+O proxy agora mostra uma mensagem clara com essa dica em vez de um stack trace.
+
+### `freeclaudio` nao encontrado
+
+No Windows, abra um **novo terminal** apos o `install.cmd` (o PATH pode nao
+recarregar na sessao atual).
+
+## Providers
 
 Qualquer API compativel com OpenAI Chat Completions funciona:
 
