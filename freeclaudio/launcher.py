@@ -15,17 +15,24 @@ from pathlib import Path
 # (arquivo de texto de ~500 bytes com mensagem de erro, nao um binario nativo)
 _CLAUDE_STUB_MAX_BYTES = 5000
 
+# Extensoes de shim que o npm cria no PATH (apontam para o claude.exe real)
+_SHM_EXTENSIONS = {".cmd", ".ps1", ".sh", ".bash", ""}
+
 
 def ensure_claude_installed() -> str:
     """Garante que o claude-code CLI esta instalado e funcional.
 
-    Alem de achar o binario, valida que o claude.exe NAO e o stub de 500 bytes
-    que resulta quando o postinstall do npm e bloqueado (allowScripts). Se for,
-    reinstala com --allow-scripts. Retorna o caminho do binario valido.
+    O npm cria shims legiveis (claude.cmd / claude / claude.ps1) no PATH que
+    apontam para o binario real em node_modules/.../bin/claude.exe. Esses shims
+    sao pequenos e NAO devem ser confundidos com o "stub invalido" que aparece
+    quando o postinstall e bloqueado. Entao a validacao resolve o caminho real
+    do claude.exe e checa o TAMANHO desse exe (nao do shim).
     """
     claude = _find_claude_binary()
     if claude and _looks_like_native_binary(claude):
-        return claude
+        # Retornar o binario real (resolvido), nao o shim .cmd/.ps1, para que
+        # subprocess.run consiga executa-lo no Windows (CreateProcess nao roda .cmd)
+        return _resolve_real_binary(claude) or claude
 
     print("Claude Code invalido ou ausente. Reinstalando via npm...")
     npm = _find_npm()
@@ -50,29 +57,86 @@ def ensure_claude_installed() -> str:
             "Rode manualmente: npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code"
         )
 
+    # Reinstalacao pode criar um novo shim; refazer a busca no PATH atual
     claude = _find_claude_binary()
     if not claude:
         raise RuntimeError("Claude Code instalado mas nao encontrado no PATH.")
     if not _looks_like_native_binary(claude):
         raise RuntimeError(
-            "O claude.exe instalado parece ser um stub (postinstall bloqueado). "
-            "Rode manualmente: node \"<npm-global>/@anthropic-ai/claude-code/install.cjs\""
+            "O binario do Claude Code parece ser um stub (postinstall bloqueado). "
+            "Rode manualmente: node \"<npm-global>/@anthropic-ai/claude-code/install.cjs\" "
+            "ou use o comando 'claude' para testar."
         )
-    return claude
+    return _resolve_real_binary(claude) or claude
 
 
 def _find_claude_binary() -> str | None:
     claude = shutil.which("claude")
-    if claude:
-        return claude
-    return None
+    return claude
+
+
+def _resolve_real_binary(path: str) -> str:
+    """Segue shims do npm ate o binario nativo real (claude.exe).
+
+    O shim claude.cmd/claude.ps1/claude tem ~100-600 bytes e aponta para o binario
+    nativo em .../node_modules/@anthropic-ai/claude-code/bin/. Retorna o path do
+    binario real se conseguir resolver, senao o path original.
+    """
+    p = Path(path)
+
+    # Se for um binario grande nativo, ja esta resolvido
+    try:
+        if p.stat().st_size > _CLAUDE_STUB_MAX_BYTES:
+            return str(p)
+    except OSError:
+        return str(p)
+
+    is_windows = os.name == "nt"
+    shim_dir = p.parent
+
+    # Diretorios candidatos onde pode estar o node_modules do prefixo npm.
+    # O shim costuma ficar em <prefix>/bin (ou <prefix>/ no Windows), e o
+    # node_modules em <prefix>/node_modules ou <prefix>/lib/node_modules.
+    candidate_roots = {shim_dir, shim_dir.parent}
+    for root in list(candidate_roots):
+        candidate_roots.add(root / "lib")
+
+    exe_names = (
+        ["claude.exe", "cli.js"] if is_windows
+        else ["cli.js", "claude"]
+    )
+
+    for root in candidate_roots:
+        pkg_dir = root / "node_modules" / "@anthropic-ai" / "claude-code"
+        if not pkg_dir.exists():
+            pkg_dir = root / "lib" / "node_modules" / "@anthropic-ai" / "claude-code"
+            if not pkg_dir.exists():
+                continue
+        for name in exe_names:
+            cand = pkg_dir / "bin" / name
+            if not cand.exists():
+                cand = pkg_dir / name
+            if cand.exists():
+                try:
+                    if cand.stat().st_size > _CLAUDE_STUB_MAX_BYTES:
+                        return str(cand)
+                except OSError:
+                    pass
+                return str(cand)
+
+    return str(p)
 
 
 def _looks_like_native_binary(path: str) -> bool:
-    """True se o arquivo for um binario nativo grande, nao o stub de texto de erro."""
+    """True se o binario NATIVO real (resolvido a partir do shim) for valido.
+
+    O stub invalido do postinstall bloqueado tem ~500 bytes; o binario nativo
+    tem dezenas de MB. O wrapper/shim npm (.cmd/.ps1) e pequeno mas legitimo,
+    entao resolvemos o exe real antes de checar o tamanho.
+    """
+    real = _resolve_real_binary(path)
     try:
-        size = Path(path).stat().st_size
-        # O stub do claude.exe tem ~500 bytes; o binario nativo tem dezenas de MB
+        size = Path(real).stat().st_size
         return size > _CLAUDE_STUB_MAX_BYTES
     except OSError:
         return False
